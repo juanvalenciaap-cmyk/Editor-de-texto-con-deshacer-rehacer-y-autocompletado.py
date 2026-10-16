@@ -1,4 +1,5 @@
 import os
+from arreglo_dinamico import ArregloDinamico
 
 class CargaArchivos:
     @staticmethod

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from arreglo_dinamico import ArregloDinamico
 INSERTAR ="INSERTAR"
 BORRAR = "BORRAR"
-dataclass(frozen=True)
+@dataclass(frozen=True)
 class opeeracion:
     """edicion
     tipo: INSERTAR O BORRAR
@@ -64,47 +64,49 @@ class PilaEstatica:
     def __len__(self):
         return self._tope
     def __repr__(self):
-        return f"PilaEstatica({[self._datos.obteber(i)for i in range(self._tope)]})"
+        return f"PilaEstatica({[self._datos.obtener(i)for i in range(self._tope)]})"
 
-    class ColaEstatica:
-        def __init__(self,capacidad=100):
-            if capacidad<=0:
-                raise ValueError("no puede ser negativa")
-            self._datos== _crear_arreglo_fijo(capacidad)
-            self._capacidad=capacidad
-            self._frente=0
-            self._tamano=0
-        def esta_vacia(self):
-            return self._tamano==0
-        def esta_llena(self):
-            return self._tamano==self._capacidad
-        def tamano(self):
-            return self._tamano
-        def enqueue(self,elemento):
-            if self.esta_llena():
-                raise EstructuraLlenaError("Cola llena")
-            final=(self._frente+self._tamano)%self._capacidad
-            self.datos.establecer(final,elemento)
-            self._tamano+=1
-        def dequeue(self):
-            if self.esta_vacia():
-                raise EstructuraLlenaError("Cola vacia")
-            elemento=self._datos.obtener(self._frente)
-            self._datos.establecer(self._frente,None)
-            self._frente=(self._frente+1)%self._capacidad
-            self._tamano-=1
-            return elemento
-        def peel(self):
-            if self.esta_vacia():
-                raise  EstructuraVaciaError("cola vacia")
-            return self._datos.obtener(self._frente)
-        def vaciar(self):
-            while not self.esta_vacia():
-                self.dequeue()
-        def __len__(self):
-            items=[self._datos.obtener((self._frente + i) % self._capacidad)
-                   for i in range(self._tamano)]
-            return f"ColaEstatica({items})"
+class ColaEstatica:
+    def __init__(self,capacidad=100):
+        if capacidad<=0:
+            raise ValueError("no puede ser negativa")
+        self._datos= _crear_arreglo_fijo(capacidad)
+        self._capacidad=capacidad
+        self._frente=0
+        self._tamano=0
+    def esta_vacia(self):
+        return self._tamano==0
+    def esta_llena(self):
+        return self._tamano==self._capacidad
+    def tamano(self):
+        return self._tamano
+    def enqueue(self,elemento):
+        if self.esta_llena():
+            raise EstructuraLlenaError("Cola llena")
+        final=(self._frente+self._tamano)%self._capacidad
+        self._datos.establecer(final, elemento)
+        self._tamano+=1
+    def dequeue(self):
+        if self.esta_vacia():
+            raise EstructuraVaciaError("Cola vacia")
+        elemento=self._datos.obtener(self._frente)
+        self._datos.establecer(self._frente,None)
+        self._frente=(self._frente+1)%self._capacidad
+        self._tamano-=1
+        return elemento
+    def peek(self):
+        if self.esta_vacia():
+            raise  EstructuraVaciaError("cola vacia")
+        return self._datos.obtener(self._frente)
+    def vaciar(self):
+        while not self.esta_vacia():
+            self.dequeue()
+    def __len__(self):
+        return self._tamano
+    def __repr__(self):
+        items=[self._datos.obtener((self._frente + i) % self._capacidad)
+        for i in range(self._tamano)]
+        return f"ColaEstatica({items})"
 
 class Historial:
     """deshacer y rehacer"""
@@ -117,7 +119,7 @@ class Historial:
     def deshacer(self):
         """devuelve la inversa"""
         op=self._deshacer.pop()
-        self._deshacer.push(op)
+        self._rehacer.push(op)
         return op.inversa()
     def rehacer(self):
         "devuelve la original"

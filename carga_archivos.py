@@ -1,5 +1,5 @@
 import os
-
+from arreglo_dinamico import ArregloDinamico
 class CargaArchivos:
     @staticmethod
     def cargar_documento(ruta_archivo):

@@ -118,4 +118,7 @@ class lista_doble:
     def __setitem__(self, indice, valor):
         self.modificar(indice, valor)
 
+    def obtener(self,indice):
+        return self.__obtener_nodo(indice).valor
+
 # Like y suscripsion
