@@ -114,6 +114,10 @@ class Historial:
         self._deshacer=PilaEstatica(capacidad)
         self._rehacer=PilaEstatica(capacidad)
     def registrar(self, operacion):
+        # la pila estatica no crece: si esta llena se reinicia para no
+        # lanzar EstructuraLlenaError y dejar de registrar ediciones
+        if self._deshacer.esta_llena():
+            self._deshacer.vaciar()
         self._deshacer.push(operacion)
         self._rehacer.vaciar()
     def deshacer(self):
