@@ -257,5 +257,5 @@ class Logica:
             nuevo_texto = texto_original.replace(buscar,reemplazar)
             self.cargar_texto(nuevo_texto)
             self.registrar_accion(INSERTAR,0,nuevo_texto)
-            self._reconstruir_arbol
+            self._reconstruir_arbol()
         return conteo 
