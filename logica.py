@@ -21,7 +21,7 @@ class Logica:
         self.cola_estatica = ColaEstatica(capacidad=100)
         self.ruta_actual = None
         self.diccionario = ArregloDinamico()
-        self._inicializar_diccionario_base()
+        self._cargar_palabras_por_defecto()
         self.lineas_lista_doble = lista_doble()
         self.lineas_lista_doble.agregar_final("")
         self.pila_undo=PilaDinamica()
@@ -100,8 +100,10 @@ class Logica:
         self.historial.registrar(op)
         if not self.cola_estatica.esta_llena():
             self.cola_estatica.enqueue(f"{tipo}:{texto[:20]}")
-    def guardar_snapshot(self):
-        texto = self.obtener_texto()
+    def guardar_snapshot(self, texto_previo=None):
+        # apila el estado ANTERIOR del documento, para que deshacer siempre
+        # pueda retroceder hasta el punto previo a la edicion
+        texto = self.obtener_texto() if texto_previo is None else texto_previo
         if not self.pila_undo.esta_vacia() and self.pila_undo.ver_tope()==texto:
             return
         self.pila_undo.apilar(texto)
@@ -122,7 +124,7 @@ class Logica:
             return None
         texto_actual = self.obtener_texto()
         self.pila_undo.apilar(texto_actual)
-        texto_siguiente=self.pila_redo.desapilar
+        texto_siguiente=self.pila_redo.desapilar()
         self.cargar_texto(texto_siguiente)
         return texto_siguiente
     def puede_deshacer (self):

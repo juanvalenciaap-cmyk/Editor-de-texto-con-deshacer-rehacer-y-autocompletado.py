@@ -1,208 +1,466 @@
+
+import os
 import tkinter as tk
-from tkinter import ttk, font
-# Usar esta cosa es como si usaramos un xaml(Amo C# 😍) 
-# Solo que esto es python puro, todo se escribe en python (Por eso no me gusta ahhhhh)
-class EditorVisualMockup(tk.Tk):
-    """
-    Apartado visual (mockup) del Editor de Texto.
-    Desacoplado de la lógica de estructuras de datos por el momento. (Despues la ponemos para que quede melisimo)
-    """
+from tkinter import ttk, font, filedialog, messagebox
+
+try:
+    from logica import Logica
+except ImportError:
+    from logica import LogicaEditor as Logica
+
+
+class EditorTexto(tk.Tk):
+    
     def __init__(self):
         super().__init__()
-        
-        self.title("Editor de Texto Super Divertido Para Toda La Familia")
-        self.geometry("950;650".replace(";", "x"))
-        self.minsize(700, 450)
 
-        # Paleta de colores estilo oscuro
+        self.title("Documento 1 — Editor de Texto")
+        self.geometry("1100x720")
+        self.minsize(800, 500)
+
+        self.logica = Logica()
+
+        # Paleta de colores
         self.colores = {
-            "bg_principal": "#1e1e2e",
-            "bg_secundario": "#181825",
-            "bg_editor": "#11111b",
-            "bg_numeros": "#181825",
-            "fg_texto": "#cdd6f4",
-            "fg_numeros": "#585b70",
-            "accent": "#89b4fa",
-            "accent_hover": "#b4befe",
-            "panel_border": "#313244",
-            "sugerencia_bg": "#24273a",
-            "sugerencia_sel": "#363a4f",
-            "status_bg": "#181825",
-            "status_fg": "#a6adc8"
+            "office_blue":       "#185abd",
+            "office_blue_dark":  "#103f80",
+            "office_blue_light": "#e8f0fe",
+            "toolbar_bg":        "#ffffff",  
+            "toolbar_border":    "#e2e4e9",
+            "canvas_bg":         "#e9edf4",  
+            "hoja_bg":           "#ffffff",  
+            "hoja_borde":        "#cfd4dc",
+            "texto_color":       "#1f2328",
+            "texto_secundario":  "#5f6368",
+            "numeros_bg":        "#f8f9fa",
+            "numeros_fg":        "#80868b",
+            "numeros_borde":     "#e0e0e0",
+            "hover_btn":         "#f0f2f5",
+            "active_btn":        "#dbeafe",  
+            "status_bg":         "#185abd",  
+            "status_fg":         "#ffffff",
+            "busqueda_hl":       "#fff176", 
+            "busqueda_fg":       "#000000",
+            "sugerencia_bg":     "#ffffff",
+            "sugerencia_sel":    "#185abd",
+            "sugerencia_sel_fg": "#ffffff",
         }
 
-        self.configure(bg=self.colores["bg_principal"])
+        self.configure(bg=self.colores["toolbar_bg"])
 
-        # Tipografías
-        self.fuente_editor = font.Font(family="Consolas", size=12)
-        self.fuente_ui = font.Font(family="Segoe UI", size=10)
-        self.fuente_ui_bold = font.Font(family="Segoe UI", size=10, weight="bold")
+        # Tipografías base
+        self.fuente_ui_familia = "Segoe UI"
+        self.fuente_base = font.Font(family="Calibri", size=11)
+        self.fuente_numeros = font.Font(family="Consolas", size=10)
 
-        self._crear_menu_superior()
+        # Estado de edición y formato
+        self._es_negrita = False
+        self._es_cursiva = False
+        self._es_subrayado = False
+        self._ultimo_snapshot = ""
+        self._nombre_archivo_actual = "Documento 1"
+        self._modificado = False
+        self._ultima_busqueda = ""
+        self._archivos_recientes = []
+
+        # Construcción de la interfaz
+        self._configurar_estilos_ttk()
         self._crear_barra_herramientas()
         self._crear_panel_busqueda()
-        self._crear_cuerpo_editor()
+        self._crear_area_editor()
         self._crear_popup_autocompletado()
         self._crear_barra_estado()
 
-        # Cargar texto demo e inicializar vista
-        self._cargar_demo()
+        # Atajos de teclado globales
+        self.bind_all("<Control-z>", self._deshacer)
+        self.bind_all("<Control-y>", self._rehacer)
+        self.bind_all("<Control-n>", lambda e: self._nuevo_documento())
+        self.bind_all("<Control-o>", lambda e: self._abrir_archivo())
+        self.bind_all("<Control-s>", lambda e: self._guardar_archivo())
+        self.bind_all("<Control-f>", lambda e: self._toggle_panel_busqueda())
+        self.bind_all("<Control-b>", lambda e: self._toggle_negrita())
+        self.bind_all("<Control-i>", lambda e: self._toggle_cursiva())
+        self.bind_all("<Control-k>", lambda e: self._toggle_cursiva())
+        self.bind_all("<Control-u>", lambda e: self._toggle_subrayado())
+
+        # Inicialización de vista
         self._actualizar_numeros_linea()
+        self._actualizar_info_estado()
 
-    # ---------------------------------------------------------
-    # 1. Menú superior de la ventana
-    # ---------------------------------------------------------
-    def _crear_menu_superior(self):
-        self.barra_menus = tk.Menu(self)
+    # =========================================================================
+    # 1. CONFIGURACIÓN VISUAL Y MENÚ ARCHIVO
+    # =========================================================================
 
-        # Menú Archivo
-        menu_archivo = tk.Menu(self.barra_menus, tearoff=0)
-        menu_archivo.add_command(label="Nuevo", accelerator="Ctrl+N")
-        menu_archivo.add_command(label="Abrir archivo...", accelerator="Ctrl+O")
-        menu_archivo.add_command(label="Guardar", accelerator="Ctrl+S")
-        menu_archivo.add_separator()
-        menu_archivo.add_command(label="Salir", command=self.quit)
-        self.barra_menus.add_cascade(label="Archivo", menu=menu_archivo)
+    def _configurar_estilos_ttk(self):
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
 
-        # Menú Estructuras
-        menu_estructuras = tk.Menu(self.barra_menus, tearoff=0)
-        menu_estructuras.add_command(label="Cargar Diccionario de Palabras...")
-        menu_estructuras.add_command(label="Ver Historial de Operaciones")
-        self.barra_menus.add_cascade(label="Estructuras", menu=menu_estructuras)
+        style.configure(
+            "Toolbar.TCombobox",
+            fieldbackground="#ffffff",
+            background=self.colores["toolbar_bg"],
+            foreground=self.colores["texto_color"],
+            relief="flat",
+            padding=3
+        )
 
-        self.config(menu=self.barra_menus)
+    def _desplegar_menu_archivo(self):
+        """Despliega el menú flotante del botón Archivo con opciones y recientes."""
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            font=(self.fuente_ui_familia, 9),
+            bg="#ffffff",
+            fg=self.colores["texto_color"],
+            activebackground=self.colores["office_blue"],
+            activeforeground="#ffffff",
+            bd=1,
+            relief=tk.SOLID
+        )
 
-    # ---------------------------------------------------------
-    # 2. Barra de herramientas interna (Toolbar)
-    # ---------------------------------------------------------
+        menu.add_command(label="📄  Nuevo documento", accelerator="Ctrl+N", command=self._nuevo_documento)
+        menu.add_command(label="📂  Abrir archivo...", accelerator="Ctrl+O", command=self._abrir_archivo)
+        menu.add_command(label="💾  Guardar", accelerator="Ctrl+S", command=self._guardar_archivo)
+        menu.add_command(label="💾  Guardar como...", command=self._guardar_como)
+        menu.add_separator()
+
+        # Submenú dinámico de archivos recientes
+        menu_recientes = tk.Menu(
+            menu,
+            tearoff=0,
+            font=(self.fuente_ui_familia, 9),
+            bg="#ffffff",
+            fg=self.colores["texto_color"],
+            activebackground=self.colores["office_blue"],
+            activeforeground="#ffffff"
+        )
+
+        if self._archivos_recientes:
+            for ruta in self._archivos_recientes:
+                nombre = os.path.basename(ruta)
+                menu_recientes.add_command(
+                    label=f"📄 {nombre}   ({ruta})",
+                    command=lambda r=ruta: self._cargar_archivo_por_ruta(r)
+                )
+        else:
+            menu_recientes.add_command(label="(No hay archivos recientes)", state="disabled")
+
+        menu.add_cascade(label="🕒  Archivos recientes", menu=menu_recientes)
+        menu.add_separator()
+        menu.add_command(label="✕  Salir", command=self.quit)
+
+        try:
+            x = self.btn_archivo.winfo_rootx()
+            y = self.btn_archivo.winfo_rooty() + self.btn_archivo.winfo_height() + 2
+            menu.post(x, y)
+        except Exception:
+            pass
+
+    def _agregar_archivo_reciente(self, ruta):
+        """Registra una ruta en la lista de archivos recientes."""
+        if not ruta:
+            return
+        ruta_abs = os.path.abspath(ruta)
+        if ruta_abs in self._archivos_recientes:
+            self._archivos_recientes.remove(ruta_abs)
+        self._archivos_recientes.insert(0, ruta_abs)
+        if len(self._archivos_recientes) > 10:
+            self._archivos_recientes.pop()
+
+    # =========================================================================
+    # 2. BARRA DE HERRAMIENTAS UNIFICADA
+    # =========================================================================
+
     def _crear_barra_herramientas(self):
-        self.toolbar = tk.Frame(self, bg=self.colores["bg_secundario"], height=42, padx=8, pady=4)
-        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+        self.toolbar_frame = tk.Frame(
+            self,
+            bg=self.colores["toolbar_bg"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.colores["toolbar_border"]
+        )
+        self.toolbar_frame.pack(side=tk.TOP, fill=tk.X)
 
-        def crear_boton_tool(texto, comando=None):
+        fila = tk.Frame(self.toolbar_frame, bg=self.colores["toolbar_bg"], padx=10, pady=6)
+        fila.pack(side=tk.LEFT, fill=tk.X)
+
+        # Botón destacado Archivo
+        self.btn_archivo = tk.Button(
+            fila,
+            text="Archivo ▾",
+            command=self._desplegar_menu_archivo,
+            bg=self.colores["office_blue"],
+            fg="#ffffff",
+            activebackground=self.colores["office_blue_dark"],
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            bd=0,
+            padx=12,
+            pady=4,
+            font=(self.fuente_ui_familia, 9, "bold"),
+            cursor="hand2"
+        )
+        self.btn_archivo.pack(side=tk.LEFT, padx=(0, 6))
+
+        def btn_tool(padre, texto, comando, icono=""):
+            txt = f"{icono} {texto}".strip() if icono else texto
             btn = tk.Button(
-                self.toolbar,
-                text=texto,
-                bg=self.colores["bg_secundario"],
-                fg=self.colores["fg_texto"],
-                activebackground=self.colores["panel_border"],
-                activeforeground=self.colores["accent"],
+                padre,
+                text=txt,
+                command=comando,
+                bg=self.colores["toolbar_bg"],
+                fg=self.colores["texto_color"],
+                activebackground=self.colores["active_btn"],
+                activeforeground=self.colores["office_blue_dark"],
                 relief=tk.FLAT,
                 bd=0,
-                padx=12,
+                padx=8,
                 pady=4,
-                font=self.fuente_ui,
-                cursor="hand2",
-                command=comando
+                font=(self.fuente_ui_familia, 9),
+                cursor="hand2"
             )
-            btn.pack(side=tk.LEFT, padx=3)
+            btn.bind("<Enter>", lambda e: btn.config(bg=self.colores["hover_btn"]))
+            btn.bind("<Leave>", lambda e: btn.config(bg=self.colores["toolbar_bg"]))
+            btn.pack(side=tk.LEFT, padx=1)
             return btn
 
-        # Operaciones de edición dentro del programa
-        crear_boton_tool("⟲ Deshacer")
-        crear_boton_tool("⟳ Rehacer")
+        def separador():
+            sep = tk.Frame(fila, width=1, height=22, bg=self.colores["toolbar_border"])
+            sep.pack(side=tk.LEFT, padx=7, pady=2)
 
-        tk.Frame(self.toolbar, bg=self.colores["panel_border"], width=1, height=20).pack(side=tk.LEFT, padx=8, pady=4)
+        separador()
 
-        crear_boton_tool("🔍 Buscar y Reemplazar", self._toggle_panel_busqueda)
+        # Historial (Undo / Redo)
+        self.btn_deshacer = btn_tool(fila, "Deshacer", self._deshacer, icono="⟲")
+        self.btn_rehacer = btn_tool(fila, "Rehacer", self._rehacer, icono="⟳")
 
-        # Separador y botón de demo de sugerencias
-        tk.Frame(self.toolbar, bg=self.colores["panel_border"], width=1, height=20).pack(side=tk.LEFT, padx=8, pady=4)
-        crear_boton_tool("✨ Sugerencias (Demo)", self._simular_autocompletado)
+        separador()
 
-    # ---------------------------------------------------------
-    # 3. Panel de Búsqueda y Reemplazo (Ocultable)
-    # ---------------------------------------------------------
+        # Fuente y Tamaño
+        self.cb_fuentes = ttk.Combobox(
+            fila,
+            values=["Calibri", "Arial", "Times New Roman", "Segoe UI", "Georgia", "Consolas"],
+            width=14,
+            state="readonly",
+            style="Toolbar.TCombobox"
+        )
+        self.cb_fuentes.set("Calibri")
+        self.cb_fuentes.bind("<<ComboboxSelected>>", self._cambiar_fuente)
+        self.cb_fuentes.pack(side=tk.LEFT, padx=(2, 3))
+
+        self.cb_tamano = ttk.Combobox(
+            fila,
+            values=[9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36],
+            width=3,
+            state="readonly",
+            style="Toolbar.TCombobox"
+        )
+        self.cb_tamano.set(11)
+        self.cb_tamano.bind("<<ComboboxSelected>>", self._cambiar_tamano)
+        self.cb_tamano.pack(side=tk.LEFT, padx=(0, 4))
+
+        # Botones de estilo tipográfico N, K, S
+        def btn_estilo(txt, cmd, fnt):
+            b = tk.Button(
+                fila,
+                text=txt,
+                command=cmd,
+                font=fnt,
+                width=3,
+                relief=tk.FLAT,
+                bd=0,
+                padx=2,
+                pady=3,
+                bg=self.colores["toolbar_bg"],
+                fg=self.colores["texto_color"],
+                activebackground=self.colores["active_btn"],
+                cursor="hand2"
+            )
+            b.pack(side=tk.LEFT, padx=1)
+            return b
+
+        self.btn_negrita = btn_estilo("N", self._toggle_negrita, (self.fuente_ui_familia, 9, "bold"))
+        self.btn_cursiva = btn_estilo("K", self._toggle_cursiva, (self.fuente_ui_familia, 9, "italic"))
+        self.btn_subrayado = btn_estilo("S", self._toggle_subrayado, (self.fuente_ui_familia, 9, "underline"))
+
+        # Mayúsculas / Minúsculas rápidas
+        btn_tool(fila, "Aa ↑", self._convertir_mayusculas)
+        btn_tool(fila, "aa ↓", self._convertir_minusculas)
+
+        separador()
+
+        # Búsqueda y Reemplazo
+        btn_tool(fila, "Buscar", self._toggle_panel_busqueda, icono="🔍")
+        btn_tool(fila, "Reemplazar", self._toggle_panel_busqueda, icono="🔄")
+
+    # =========================================================================
+    # 3. PANEL DE BÚSQUEDA Y REEMPLAZO FLOTANTE
+    # =========================================================================
+
     def _crear_panel_busqueda(self):
-        self.panel_busqueda = tk.Frame(self, bg=self.colores["bg_secundario"], padx=10, pady=6, bd=1, relief=tk.SOLID)
-        
-        # Etiqueta y campo Buscar
-        tk.Label(self.panel_busqueda, text="Buscar:", bg=self.colores["bg_secundario"], fg=self.colores["fg_texto"], font=self.fuente_ui).grid(row=0, column=0, padx=5, pady=2, sticky="e")
-        self.entry_buscar = tk.Entry(self.panel_busqueda, width=22, bg=self.colores["bg_editor"], fg=self.colores["fg_texto"], insertbackground=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui)
-        self.entry_buscar.grid(row=0, column=1, padx=5, pady=2)
+        self.panel_busqueda = tk.Frame(
+            self,
+            bg="#ffffff",
+            bd=1,
+            relief=tk.SOLID,
+            padx=12,
+            pady=8
+        )
+        self.panel_busqueda.configure(highlightbackground=self.colores["toolbar_border"], highlightthickness=1)
 
-        # Botones de Búsqueda
-        btn_buscar_siguiente = tk.Button(self.panel_busqueda, text="Buscar Siguiente", bg=self.colores["panel_border"], fg=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui, cursor="hand2")
-        btn_buscar_siguiente.grid(row=0, column=2, padx=4, pady=2)
+        # Fila Búsqueda
+        f1 = tk.Frame(self.panel_busqueda, bg="#ffffff")
+        f1.pack(fill=tk.X, pady=2)
 
-        # Etiqueta y campo Reemplazar
-        tk.Label(self.panel_busqueda, text="Reemplazar:", bg=self.colores["bg_secundario"], fg=self.colores["fg_texto"], font=self.fuente_ui).grid(row=0, column=3, padx=5, pady=2, sticky="e")
-        self.entry_reemplazar = tk.Entry(self.panel_busqueda, width=22, bg=self.colores["bg_editor"], fg=self.colores["fg_texto"], insertbackground=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui)
-        self.entry_reemplazar.grid(row=0, column=4, padx=5, pady=2)
+        tk.Label(f1, text="Buscar:", bg="#ffffff", fg=self.colores["texto_color"],
+                 font=(self.fuente_ui_familia, 9), width=10, anchor="w").pack(side=tk.LEFT)
 
-        # Botones de Reemplazo
-        btn_reemplazar = tk.Button(self.panel_busqueda, text="Reemplazar", bg=self.colores["panel_border"], fg=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui, cursor="hand2")
-        btn_reemplazar.grid(row=0, column=5, padx=4, pady=2)
+        self.entry_buscar = tk.Entry(
+            f1, width=20, font=(self.fuente_ui_familia, 9),
+            bg="#ffffff", fg=self.colores["texto_color"], bd=1, relief=tk.SOLID
+        )
+        self.entry_buscar.pack(side=tk.LEFT, padx=4)
+        self.entry_buscar.bind("<Return>", lambda e: self._buscar_siguiente())
 
-        btn_reemplazar_todo = tk.Button(self.panel_busqueda, text="Reemplazar Todo", bg=self.colores["panel_border"], fg=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui, cursor="hand2")
-        btn_reemplazar_todo.grid(row=0, column=6, padx=4, pady=2)
+        tk.Button(
+            f1, text="↓ Siguiente", command=self._buscar_siguiente,
+            bg=self.colores["office_blue_light"], fg=self.colores["office_blue"],
+            relief=tk.FLAT, bd=0, padx=8, pady=2, font=(self.fuente_ui_familia, 8, "bold"),
+            cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
 
-        # Botón Cerrar panel
-        btn_cerrar = tk.Button(self.panel_busqueda, text="✕", bg=self.colores["bg_secundario"], fg=self.colores["fg_texto"], relief=tk.FLAT, font=self.fuente_ui_bold, cursor="hand2", command=self._toggle_panel_busqueda)
-        btn_cerrar.grid(row=0, column=7, padx=8, pady=2)
+        tk.Button(
+            f1, text="✕", command=self._toggle_panel_busqueda,
+            bg="#ffffff", fg=self.colores["texto_secundario"],
+            relief=tk.FLAT, bd=0, padx=6, font=(self.fuente_ui_familia, 9, "bold"),
+            cursor="hand2"
+        ).pack(side=tk.RIGHT)
+
+        # Fila Reemplazo
+        f2 = tk.Frame(self.panel_busqueda, bg="#ffffff")
+        f2.pack(fill=tk.X, pady=2)
+
+        tk.Label(f2, text="Reemplazar:", bg="#ffffff", fg=self.colores["texto_color"],
+                 font=(self.fuente_ui_familia, 9), width=10, anchor="w").pack(side=tk.LEFT)
+
+        self.entry_reemplazar = tk.Entry(
+            f2, width=20, font=(self.fuente_ui_familia, 9),
+            bg="#ffffff", fg=self.colores["texto_color"], bd=1, relief=tk.SOLID
+        )
+        self.entry_reemplazar.pack(side=tk.LEFT, padx=4)
+        self.entry_reemplazar.bind("<Return>", lambda e: self._reemplazar_actual())
+
+        tk.Button(
+            f2, text="Reemplazar", command=self._reemplazar_actual,
+            bg=self.colores["hover_btn"], fg=self.colores["texto_color"],
+            relief=tk.FLAT, bd=0, padx=6, pady=2, font=(self.fuente_ui_familia, 8),
+            cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
+
+        tk.Button(
+            f2, text="Todo", command=self._reemplazar_todo,
+            bg=self.colores["hover_btn"], fg=self.colores["texto_color"],
+            relief=tk.FLAT, bd=0, padx=6, pady=2, font=(self.fuente_ui_familia, 8),
+            cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
 
         self.busqueda_visible = False
 
-    def _toggle_panel_busqueda(self):
+    def _toggle_panel_busqueda(self, event=None):
         if self.busqueda_visible:
-            self.panel_busqueda.pack_forget()
+            self.panel_busqueda.place_forget()
             self.busqueda_visible = False
+            self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
         else:
-            self.panel_busqueda.pack(side=tk.TOP, fill=tk.X, after=self.toolbar)
+            self.panel_busqueda.place(relx=1.0, y=95, anchor="ne", x=-25)
+            self.panel_busqueda.lift()
             self.busqueda_visible = True
             self.entry_buscar.focus_set()
+            self.entry_buscar.select_range(0, tk.END)
 
-    # ---------------------------------------------------------
-    # 4. Área de texto central y número de líneas
-    # ---------------------------------------------------------
-    def _crear_cuerpo_editor(self):
-        contenedor_editor = tk.Frame(self, bg=self.colores["bg_principal"])
-        contenedor_editor.pack(fill=tk.BOTH, expand=True)
+    # =========================================================================
+    # 4. ÁREA DE TRABAJO DEL EDITOR
+    # =========================================================================
 
-        # Barra de scroll vertical
-        self.scroll_y = tk.Scrollbar(contenedor_editor, bg=self.colores["bg_secundario"])
+    def _crear_area_editor(self):
+        self.contenedor_fondo = tk.Frame(self, bg=self.colores["canvas_bg"])
+        self.contenedor_fondo.pack(fill=tk.BOTH, expand=True)
+
+        self.scroll_y = tk.Scrollbar(self.contenedor_fondo, bg=self.colores["canvas_bg"])
         self.scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Números de línea (Text widget deshabilitado para escribir)
+        frame_centrado = tk.Frame(self.contenedor_fondo, bg=self.colores["canvas_bg"])
+        frame_centrado.pack(fill=tk.BOTH, expand=True, padx=25, pady=15)
+
+        self.marco_hoja = tk.Frame(frame_centrado, bg=self.colores["hoja_borde"], bd=1, relief=tk.SOLID)
+        self.marco_hoja.pack(fill=tk.BOTH, expand=True)
+
+        self.hoja_interior = tk.Frame(self.marco_hoja, bg=self.colores["hoja_bg"])
+        self.hoja_interior.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+        # Números de línea laterales
         self.numeros_linea = tk.Text(
-            contenedor_editor,
+            self.hoja_interior,
             width=4,
             padx=8,
-            pady=8,
+            pady=20,
             takefocus=0,
             border=0,
-            bg=self.colores["bg_numeros"],
-            fg=self.colores["fg_numeros"],
+            bg=self.colores["numeros_bg"],
+            fg=self.colores["numeros_fg"],
             state=tk.DISABLED,
-            font=self.fuente_editor,
+            font=self.fuente_numeros,
             wrap=tk.NONE
         )
         self.numeros_linea.pack(side=tk.LEFT, fill=tk.Y)
 
-        # Área de edición principal
+        tk.Frame(self.hoja_interior, width=1, bg=self.colores["numeros_borde"]).pack(side=tk.LEFT, fill=tk.Y)
+
+        # Widget de texto central
         self.texto_editor = tk.Text(
-            contenedor_editor,
-            padx=12,
-            pady=8,
+            self.hoja_interior,
+            padx=35,
+            pady=20,
             border=0,
-            bg=self.colores["bg_editor"],
-            fg=self.colores["fg_texto"],
-            insertbackground=self.colores["accent"], # Color del cursor
-            selectbackground=self.colores["panel_border"],
-            selectforeground=self.colores["fg_texto"],
-            font=self.fuente_editor,
-            undo=False, # Manejado por nuestra propia lógica posteriormente
-            wrap=tk.NONE,
+            bg=self.colores["hoja_bg"],
+            fg=self.colores["texto_color"],
+            insertbackground=self.colores["office_blue"],
+            selectbackground=self.colores["active_btn"],
+            selectforeground=self.colores["texto_color"],
+            font=self.fuente_base,
+            undo=False,
+            wrap=tk.WORD,
             yscrollcommand=self._sincronizar_scroll
         )
         self.texto_editor.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        self._configurar_tags_editor()
         self.scroll_y.config(command=self._on_scroll_scrollbar)
 
-        # Eventos para sincronizar números de línea y conteos
-        self.texto_editor.bind("<KeyRelease>", self._on_cambio_contenido)
+        # Enlace de eventos del editor
+        self.texto_editor.bind("<KeyPress>", self._on_key_press)
+        self.texto_editor.bind("<KeyRelease>", self._on_tecla_liberada)
         self.texto_editor.bind("<MouseWheel>", self._on_scroll_mouse)
-        self.texto_editor.bind("<Button-1>", lambda e: self.popup_sugerencias.place_forget())
+        self.texto_editor.bind("<Button-1>", self._on_click_editor)
+        self.texto_editor.bind("<Tab>", self._aplicar_sugerencia)
+        self.texto_editor.bind("<Return>", self._on_enter)
+
+    def _configurar_tags_editor(self):
+        familia = self.fuente_base.actual("family")
+        tamano = self.fuente_base.actual("size")
+
+        self.texto_editor.tag_config(
+            "busqueda",
+            background=self.colores["busqueda_hl"],
+            foreground=self.colores["busqueda_fg"]
+        )
+        self.texto_editor.tag_config("negrita", font=(familia, tamano, "bold"))
+        self.texto_editor.tag_config("cursiva", font=(familia, tamano, "italic"))
+        self.texto_editor.tag_config("negrita_cursiva", font=(familia, tamano, "bold italic"))
+        self.texto_editor.tag_config("subrayado", underline=True)
 
     def _sincronizar_scroll(self, primero, ultimo):
         self.scroll_y.set(primero, ultimo)
@@ -215,9 +473,26 @@ class EditorVisualMockup(tk.Tk):
     def _on_scroll_mouse(self, event):
         self._actualizar_numeros_linea()
 
-    def _on_cambio_contenido(self, event=None):
-        self._actualizar_numeros_linea()
+    def _on_click_editor(self, event=None):
+        self.popup_sugerencias.place_forget()
+        self._sincronizar_botones_con_cursor()
         self._actualizar_info_estado()
+
+    def _sincronizar_botones_con_cursor(self):
+        """Refleja en los botones N, K, S el formato presente en la posición del cursor."""
+        try:
+            pos = self.texto_editor.index(tk.INSERT)
+            check_pos = f"{pos}-1c" if pos.split(".")[1] != "0" else pos
+            tags = self.texto_editor.tag_names(check_pos)
+            self._es_negrita = "negrita" in tags or "negrita_cursiva" in tags
+            self._es_cursiva = "cursiva" in tags or "negrita_cursiva" in tags
+            self._es_subrayado = "subrayado" in tags
+
+            self._actualizar_boton_estilo(self.btn_negrita, self._es_negrita)
+            self._actualizar_boton_estilo(self.btn_cursiva, self._es_cursiva)
+            self._actualizar_boton_estilo(self.btn_subrayado, self._es_subrayado)
+        except Exception:
+            pass
 
     def _actualizar_numeros_linea(self):
         lineas_totales = int(self.texto_editor.index("end-1c").split(".")[0])
@@ -228,27 +503,23 @@ class EditorVisualMockup(tk.Tk):
         self.numeros_linea.insert("1.0", lista_numeros)
         self.numeros_linea.config(state=tk.DISABLED)
 
-        # Sincronizar posición vertical
         primero, _ = self.texto_editor.yview()
         self.numeros_linea.yview_moveto(primero)
 
-    # ---------------------------------------------------------
-    # 5. Ventana emergente (Popup) de autocompletado
-    # ---------------------------------------------------------
+    # =========================================================================
+    # 5. AUTOCOMPLETADO FLOTANTE (BST + DICCIONARIO)
+    # =========================================================================
+
     def _crear_popup_autocompletado(self):
-        self.popup_sugerencias = tk.Frame(
-            self.texto_editor,
-            bg=self.colores["sugerencia_bg"],
-            bd=1,
-            relief=tk.SOLID
-        )
+        self.popup_sugerencias = tk.Frame(self.texto_editor, bg=self.colores["sugerencia_bg"], bd=1, relief=tk.SOLID)
+        self.popup_sugerencias.configure(highlightbackground=self.colores["office_blue"], highlightthickness=1)
 
         tk.Label(
             self.popup_sugerencias,
-            text=" Sugerencias (Tab / Enter)",
-            bg=self.colores["panel_border"],
-            fg=self.colores["accent"],
-            font=font.Font(family="Segoe UI", size=8, weight="bold"),
+            text="  Sugerencias de palabra (Tab)",
+            bg=self.colores["office_blue_light"],
+            fg=self.colores["office_blue"],
+            font=(self.fuente_ui_familia, 8, "bold"),
             anchor="w"
         ).pack(fill=tk.X)
 
@@ -257,98 +528,565 @@ class EditorVisualMockup(tk.Tk):
             height=5,
             width=24,
             bg=self.colores["sugerencia_bg"],
-            fg=self.colores["fg_texto"],
-            selectbackground=self.colores["accent"],
-            selectforeground=self.colores["bg_secundario"],
+            fg=self.colores["texto_color"],
+            selectbackground=self.colores["sugerencia_sel"],
+            selectforeground=self.colores["sugerencia_sel_fg"],
             relief=tk.FLAT,
             bd=0,
-            font=self.fuente_ui,
+            font=(self.fuente_ui_familia, 9),
             activestyle="none"
         )
         self.lista_sugerencias.pack(padx=2, pady=2)
+        self.lista_sugerencias.bind("<Return>", self._aplicar_sugerencia)
+        self.lista_sugerencias.bind("<Tab>", self._aplicar_sugerencia)
 
-    def _simular_autocompletado(self):
-        """Muestra cómo se ve el menú flotante de autocompletado."""
+    def _actualizar_autocompletado(self):
+        pos = self.texto_editor.index(tk.INSERT)
+        num_linea = pos.split(".")[0]
+        texto_hasta_cursor = self.texto_editor.get(f"{num_linea}.0", pos)
+
+        tokens = texto_hasta_cursor.split()
+        if not tokens:
+            self.popup_sugerencias.place_forget()
+            return
+
+        prefijo = tokens[-1]
+        if len(prefijo) < 2:
+            self.popup_sugerencias.place_forget()
+            return
+
+        sugerencias = self.logica.sugerir_palabras(prefijo)
+        if not sugerencias:
+            self.popup_sugerencias.place_forget()
+            return
+
         self.lista_sugerencias.delete(0, tk.END)
-        ejemplos = ["estructura", "estudiante", "estático", "estimación", "estrategia"]
-        for p in ejemplos:
-            self.lista_sugerencias.insert(tk.END, f"  {p}")
-
+        for s in sugerencias:
+            self.lista_sugerencias.insert(tk.END, f"  {s}")
         self.lista_sugerencias.selection_set(0)
 
-        # Ubicar cerca de donde esté el cursor (coordenadas aproximadas)
         bbox = self.texto_editor.bbox(tk.INSERT)
         if bbox:
             x, y, _, alto = bbox
-            self.popup_sugerencias.place(x=x + 10, y=y + alto + 5)
+            self.popup_sugerencias.place(x=x + 10, y=y + alto + 4)
         else:
-            self.popup_sugerencias.place(x=120, y=60)
+            self.popup_sugerencias.place(x=40, y=40)
 
-    # ---------------------------------------------------------
-    # 6. Barra de estado inferior
-    # ---------------------------------------------------------
+    def _aplicar_sugerencia(self, event=None):
+        if not self.popup_sugerencias.winfo_ismapped():
+            return
+
+        seleccion = self.lista_sugerencias.curselection()
+        if not seleccion:
+            return "break"
+
+        palabra_completa = self.lista_sugerencias.get(seleccion[0]).strip()
+        pos = self.texto_editor.index(tk.INSERT)
+        num_linea = pos.split(".")[0]
+        texto_hasta_cursor = self.texto_editor.get(f"{num_linea}.0", pos)
+
+        tokens = texto_hasta_cursor.split()
+        if tokens:
+            prefijo = tokens[-1]
+            col_inicio = len(texto_hasta_cursor) - len(prefijo)
+            inicio_tk = f"{num_linea}.{col_inicio}"
+            texto_previo = self.texto_editor.get("1.0", "end-1c")
+            self.texto_editor.delete(inicio_tk, pos)
+            self.texto_editor.insert(inicio_tk, palabra_completa + " ")
+
+            texto_nuevo = self.texto_editor.get("1.0", "end-1c")
+            self.logica.cargar_texto(texto_nuevo)
+            self.logica.guardar_snapshot(texto_previo)
+            self._ultimo_snapshot = texto_nuevo
+            self._marcar_modificado(True)
+
+        self.popup_sugerencias.place_forget()
+        self._actualizar_numeros_linea()
+        self._actualizar_info_estado()
+        return "break"
+
+    # =========================================================================
+    # 6. GESTIÓN DE EDICIÓN Y ESTILOS DE FORMATO
+    # =========================================================================
+
+    def _on_tecla_liberada(self, event=None):
+        texto_actual = self.texto_editor.get("1.0", "end-1c")
+        self.logica.cargar_texto(texto_actual)
+
+        # Se apila siempre el estado ANTERIOR de la ultima edicion registrada.
+        # Asi cada operacion (escritura, borrado, pegado) es un paso de deshacer
+        # y el documento original siempre queda guardado en pila_undo.
+        if texto_actual != self._ultimo_snapshot:
+            self.logica.guardar_snapshot(self._ultimo_snapshot)
+            self._ultimo_snapshot = texto_actual
+            self._marcar_modificado(True)
+
+        self._actualizar_autocompletado()
+        self._actualizar_numeros_linea()
+        self._actualizar_info_estado()
+
+    def _on_enter(self, event=None):
+        texto_actual = self.texto_editor.get("1.0", "end-1c")
+        if texto_actual != self._ultimo_snapshot:
+            self.logica.guardar_snapshot(self._ultimo_snapshot)
+            self._ultimo_snapshot = texto_actual
+        self.popup_sugerencias.place_forget()
+        return None
+
+    def _cambiar_fuente(self, event=None):
+        familia = self.cb_fuentes.get()
+        tamano = int(self.cb_tamano.get())
+        self.fuente_base.configure(family=familia, size=tamano)
+        self._configurar_tags_editor()
+
+    def _cambiar_tamano(self, event=None):
+        self._cambiar_fuente()
+
+    def _obtener_tags_activos(self):
+        """Retorna la lista de tags que deben aplicarse a los caracteres escritos."""
+        tags = []
+        if self._es_negrita and self._es_cursiva:
+            tags.append("negrita_cursiva")
+        elif self._es_negrita:
+            tags.append("negrita")
+        elif self._es_cursiva:
+            tags.append("cursiva")
+
+        if self._es_subrayado:
+            tags.append("subrayado")
+        return tags
+
+    def _on_key_press(self, event):
+        """Aplica estilos activos únicamente al texto que se teclea sin alterar lo previo."""
+        if event.char and event.char >= " " and not (event.state & 0x4):
+            tags_activos = self._obtener_tags_activos()
+
+            try:
+                sel_inicio = self.texto_editor.index(tk.SEL_FIRST)
+                sel_fin = self.texto_editor.index(tk.SEL_LAST)
+                self.texto_editor.delete(sel_inicio, sel_fin)
+            except tk.TclError:
+                pass
+
+            pos_antes = self.texto_editor.index(tk.INSERT)
+            self.texto_editor.insert(tk.INSERT, event.char, tuple(tags_activos))
+            pos_despues = self.texto_editor.index(tk.INSERT)
+
+            # Limpiar herencias indeseadas si algún estilo está desactivado
+            if not self._es_negrita:
+                self.texto_editor.tag_remove("negrita", pos_antes, pos_despues)
+                self.texto_editor.tag_remove("negrita_cursiva", pos_antes, pos_despues)
+            if not self._es_cursiva:
+                self.texto_editor.tag_remove("cursiva", pos_antes, pos_despues)
+                self.texto_editor.tag_remove("negrita_cursiva", pos_antes, pos_despues)
+            if not self._es_subrayado:
+                self.texto_editor.tag_remove("subrayado", pos_antes, pos_despues)
+
+            self._on_tecla_liberada(event)
+            return "break"
+        return None
+
+    def _actualizar_boton_estilo(self, btn, activo):
+        if activo:
+            btn.config(
+                bg=self.colores["active_btn"],
+                fg=self.colores["office_blue_dark"],
+                relief=tk.SOLID,
+                bd=1,
+                highlightbackground=self.colores["office_blue"],
+                highlightthickness=1
+            )
+        else:
+            btn.config(
+                bg=self.colores["toolbar_bg"],
+                fg=self.colores["texto_color"],
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=0
+            )
+
+    def _toggle_negrita(self):
+        try:
+            inicio = self.texto_editor.index(tk.SEL_FIRST)
+            fin = self.texto_editor.index(tk.SEL_LAST)
+            hay_seleccion = True
+        except tk.TclError:
+            hay_seleccion = False
+
+        if hay_seleccion:
+            tags = self.texto_editor.tag_names(inicio)
+            tiene_neg = "negrita" in tags or "negrita_cursiva" in tags
+            tiene_cur = "cursiva" in tags or "negrita_cursiva" in tags
+
+            if tiene_neg:
+                self.texto_editor.tag_remove("negrita", inicio, fin)
+                self.texto_editor.tag_remove("negrita_cursiva", inicio, fin)
+                if tiene_cur:
+                    self.texto_editor.tag_add("cursiva", inicio, fin)
+                self._es_negrita = False
+            else:
+                if tiene_cur:
+                    self.texto_editor.tag_remove("cursiva", inicio, fin)
+                    self.texto_editor.tag_add("negrita_cursiva", inicio, fin)
+                else:
+                    self.texto_editor.tag_add("negrita", inicio, fin)
+                self._es_negrita = True
+        else:
+            self._es_negrita = not self._es_negrita
+
+        self._actualizar_boton_estilo(self.btn_negrita, self._es_negrita)
+        self.texto_editor.focus_set()
+
+    def _toggle_cursiva(self):
+        try:
+            inicio = self.texto_editor.index(tk.SEL_FIRST)
+            fin = self.texto_editor.index(tk.SEL_LAST)
+            hay_seleccion = True
+        except tk.TclError:
+            hay_seleccion = False
+
+        if hay_seleccion:
+            tags = self.texto_editor.tag_names(inicio)
+            tiene_neg = "negrita" in tags or "negrita_cursiva" in tags
+            tiene_cur = "cursiva" in tags or "negrita_cursiva" in tags
+
+            if tiene_cur:
+                self.texto_editor.tag_remove("cursiva", inicio, fin)
+                self.texto_editor.tag_remove("negrita_cursiva", inicio, fin)
+                if tiene_neg:
+                    self.texto_editor.tag_add("negrita", inicio, fin)
+                self._es_cursiva = False
+            else:
+                if tiene_neg:
+                    self.texto_editor.tag_remove("negrita", inicio, fin)
+                    self.texto_editor.tag_add("negrita_cursiva", inicio, fin)
+                else:
+                    self.texto_editor.tag_add("cursiva", inicio, fin)
+                self._es_cursiva = True
+        else:
+            self._es_cursiva = not self._es_cursiva
+
+        self._actualizar_boton_estilo(self.btn_cursiva, self._es_cursiva)
+        self.texto_editor.focus_set()
+
+    def _toggle_subrayado(self):
+        try:
+            inicio = self.texto_editor.index(tk.SEL_FIRST)
+            fin = self.texto_editor.index(tk.SEL_LAST)
+            hay_seleccion = True
+        except tk.TclError:
+            hay_seleccion = False
+
+        if hay_seleccion:
+            if "subrayado" in self.texto_editor.tag_names(inicio):
+                self.texto_editor.tag_remove("subrayado", inicio, fin)
+                self._es_subrayado = False
+            else:
+                self.texto_editor.tag_add("subrayado", inicio, fin)
+                self._es_subrayado = True
+        else:
+            self._es_subrayado = not self._es_subrayado
+
+        self._actualizar_boton_estilo(self.btn_subrayado, self._es_subrayado)
+        self.texto_editor.focus_set()
+
+    def _convertir_mayusculas(self):
+        try:
+            inicio = self.texto_editor.index(tk.SEL_FIRST)
+            fin = self.texto_editor.index(tk.SEL_LAST)
+            texto_sel = self.texto_editor.get(inicio, fin)
+            self.texto_editor.delete(inicio, fin)
+            self.texto_editor.insert(inicio, texto_sel.upper())
+            self._on_tecla_liberada()
+        except tk.TclError:
+            pass
+
+    def _convertir_minusculas(self):
+        try:
+            inicio = self.texto_editor.index(tk.SEL_FIRST)
+            fin = self.texto_editor.index(tk.SEL_LAST)
+            texto_sel = self.texto_editor.get(inicio, fin)
+            self.texto_editor.delete(inicio, fin)
+            self.texto_editor.insert(inicio, texto_sel.lower())
+            self._on_tecla_liberada()
+        except tk.TclError:
+            pass
+
+    # =========================================================================
+    # 7. HISTORIAL (DESHACER Y REHACER)
+    # =========================================================================
+
+    def _deshacer(self, event=None):
+        texto_actual = self.texto_editor.get("1.0", "end-1c")
+        # solo sincroniza: NO se apila aqui, porque deshacer() ya guarda el
+        # estado actual en pila_redo. Apilarlo aqui provocaba un no-op.
+        self.logica.cargar_texto(texto_actual)
+
+        texto_restaurado = self.logica.deshacer()
+        if texto_restaurado is None:
+            return "break"
+
+        self._sincronizar_editor_desde_logica(texto_restaurado)
+        return "break"
+
+    def _rehacer(self, event=None):
+        texto_restaurado = self.logica.rehacer()
+        if texto_restaurado is None:
+            return "break"
+
+        self._sincronizar_editor_desde_logica(texto_restaurado)
+        return "break"
+
+    def _sincronizar_editor_desde_logica(self, texto):
+        self.texto_editor.delete("1.0", tk.END)
+        self.texto_editor.insert("1.0", texto)
+        self._ultimo_snapshot = texto
+        self.popup_sugerencias.place_forget()
+        self._actualizar_numeros_linea()
+        self._actualizar_info_estado()
+
+    # =========================================================================
+    # 8. BÚSQUEDA Y REEMPLAZO CON COLA DINÁMICA
+    # =========================================================================
+
+    def _buscar_siguiente(self):
+        termino = self.entry_buscar.get()
+        if not termino:
+            return
+
+        if termino != self._ultima_busqueda:
+            self._ultima_busqueda = termino
+            texto_actual = self.texto_editor.get("1.0", "end-1c")
+            self.logica.cargar_texto(texto_actual)
+            self.logica._reconstruir_arbol()
+            coincidencias = self.logica.buscar_texto(termino)
+
+            if not coincidencias:
+                messagebox.showinfo("Búsqueda", f'No se encontró "{termino}".')
+                self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
+                return
+
+        resultado = self.logica.siguiente_coincidencia()
+        if resultado is None:
+            return
+
+        fila, col = resultado
+        longitud = len(termino)
+        inicio = f"{fila + 1}.{col}"
+        fin = f"{fila + 1}.{col + longitud}"
+
+        self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
+        self.texto_editor.tag_add("busqueda", inicio, fin)
+        self.texto_editor.see(inicio)
+        self.texto_editor.mark_set(tk.INSERT, inicio)
+
+    def _reemplazar_actual(self):
+        termino = self.entry_buscar.get()
+        reemplazo = self.entry_reemplazar.get()
+        if not termino:
+            return
+
+        rangos = self.texto_editor.tag_ranges("busqueda")
+        if not rangos:
+            self._buscar_siguiente()
+            return
+
+        inicio, fin = rangos[0], rangos[1]
+        texto_previo = self.texto_editor.get("1.0", "end-1c")
+        self.texto_editor.delete(inicio, fin)
+        self.texto_editor.insert(inicio, reemplazo)
+
+        texto_nuevo = self.texto_editor.get("1.0", "end-1c")
+        self.logica.cargar_texto(texto_nuevo)
+        self.logica.guardar_snapshot(texto_previo)
+        self._ultimo_snapshot = texto_nuevo
+        self._marcar_modificado(True)
+
+        self._ultima_busqueda = ""
+        self._buscar_siguiente()
+
+    def _reemplazar_todo(self):
+        buscar = self.entry_buscar.get()
+        reemplazar = self.entry_reemplazar.get()
+        if not buscar:
+            return
+
+        texto_actual = self.texto_editor.get("1.0", "end-1c")
+        self.logica.cargar_texto(texto_actual)
+        self.logica.guardar_snapshot()
+
+        conteo = self.logica.reemplazar_todo(buscar, reemplazar)
+        if conteo > 0:
+            self._sincronizar_editor_desde_logica(self.logica.obtener_texto())
+            self._marcar_modificado(True)
+            messagebox.showinfo("Reemplazar Todo", f"Se reemplazaron {conteo} apariciones.")
+        else:
+            messagebox.showinfo("Reemplazar Todo", f'No se encontró "{buscar}".')
+
+        self._ultima_busqueda = ""
+        self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
+
+    # =========================================================================
+    # 9. GESTIÓN DE ARCHIVOS
+    # =========================================================================
+
+    def _nuevo_documento(self):
+        if not self._confirmar_descarte():
+            return
+        self.logica.nuevo_documento()
+        self.texto_editor.delete("1.0", tk.END)
+        self._ultimo_snapshot = ""
+        self._ultima_busqueda = ""
+        self._nombre_archivo_actual = "Documento 1"
+        self._marcar_modificado(False)
+        self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
+        self._actualizar_numeros_linea()
+        self._actualizar_info_estado()
+
+    def _cargar_archivo_por_ruta(self, ruta):
+        if not self._confirmar_descarte():
+            return
+        try:
+            nodo = self.logica.abrir_archivo(ruta)
+            texto = self.logica.obtener_texto()
+            self.texto_editor.delete("1.0", tk.END)
+            self.texto_editor.insert("1.0", texto)
+            self._ultimo_snapshot = texto
+            self._ultima_busqueda = ""
+            self._nombre_archivo_actual = nodo.nombre
+            self._marcar_modificado(False)
+            self._agregar_archivo_reciente(ruta)
+            self.texto_editor.tag_remove("busqueda", "1.0", tk.END)
+            self._actualizar_numeros_linea()
+            self._actualizar_info_estado()
+        except Exception as e:
+            messagebox.showerror("Error al abrir", str(e))
+
+    def _abrir_archivo(self):
+        if not self._confirmar_descarte():
+            return
+        ruta = filedialog.askopenfilename(
+            title="Abrir documento",
+            filetypes=[("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*")]
+        )
+        if not ruta:
+            return
+        self._cargar_archivo_por_ruta(ruta)
+
+    def _guardar_archivo(self):
+        if self.logica.ruta_actual:
+            texto_actual = self.texto_editor.get("1.0", "end-1c")
+            self.logica.cargar_texto(texto_actual)
+            try:
+                self.logica.guardar_archivo()
+                self._marcar_modificado(False)
+                self._agregar_archivo_reciente(self.logica.ruta_actual)
+            except Exception as e:
+                messagebox.showerror("Error al guardar", str(e))
+        else:
+            self._guardar_como()
+
+    def _guardar_como(self):
+        ruta = filedialog.asksaveasfilename(
+            title="Guardar documento",
+            defaultextension=".txt",
+            filetypes=[("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*")]
+        )
+        if not ruta:
+            return
+        texto_actual = self.texto_editor.get("1.0", "end-1c")
+        self.logica.cargar_texto(texto_actual)
+        try:
+            self.logica.guardar_archivo(ruta)
+            self._nombre_archivo_actual = os.path.basename(ruta)
+            self._marcar_modificado(False)
+            self._agregar_archivo_reciente(ruta)
+        except Exception as e:
+            messagebox.showerror("Error al guardar", str(e))
+
+    def _confirmar_descarte(self):
+        if self._modificado:
+            resp = messagebox.askyesnocancel(
+                "¿Guardar cambios?",
+                f"¿Deseas guardar los cambios en {self._nombre_archivo_actual} antes de continuar?"
+            )
+            if resp is True:
+                self._guardar_archivo()
+                return True
+            elif resp is False:
+                return True
+            else:
+                return False
+        return True
+
+    def _marcar_modificado(self, estado):
+        self._modificado = estado
+        asterisco = "• " if estado else ""
+        self.title(f"{asterisco}{self._nombre_archivo_actual} — Editor de Texto")
+
+    # =========================================================================
+    # 10. BARRA DE ESTADO INFERIOR
+    # =========================================================================
+
     def _crear_barra_estado(self):
-        self.barra_estado = tk.Frame(self, bg=self.colores["status_bg"], height=26, padx=12)
+        self.barra_estado = tk.Frame(self, bg=self.colores["status_bg"], height=26, padx=14)
         self.barra_estado.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Conteo de líneas y caracteres
-        self.lbl_conteo = tk.Label(
+        self.lbl_stats = tk.Label(
             self.barra_estado,
-            text="Líneas: 1  |  Caracteres: 0",
+            text="Página 1 de 1  |  0 palabras  |  0 caracteres",
             bg=self.colores["status_bg"],
             fg=self.colores["status_fg"],
-            font=self.fuente_ui
+            font=(self.fuente_ui_familia, 9)
         )
-        self.lbl_conteo.pack(side=tk.LEFT)
+        self.lbl_stats.pack(side=tk.LEFT)
 
-        # Indicador de estado del historial (deshacer / rehacer)
+        lbl_zoom = tk.Label(
+            self.barra_estado,
+            text="100%",
+            bg=self.colores["status_bg"],
+            fg=self.colores["status_fg"],
+            font=(self.fuente_ui_familia, 9)
+        )
+        lbl_zoom.pack(side=tk.RIGHT, padx=(10, 0))
+
+        self.lbl_cursor = tk.Label(
+            self.barra_estado,
+            text="Lín 1, Col 1",
+            bg=self.colores["status_bg"],
+            fg=self.colores["status_fg"],
+            font=(self.fuente_ui_familia, 9)
+        )
+        self.lbl_cursor.pack(side=tk.RIGHT, padx=10)
+
         self.lbl_historial = tk.Label(
             self.barra_estado,
-            text="Historial: 0 acciones disponibles",
+            text="Historial: 0",
             bg=self.colores["status_bg"],
             fg=self.colores["status_fg"],
-            font=self.fuente_ui
+            font=(self.fuente_ui_familia, 9)
         )
-        self.lbl_historial.pack(side=tk.RIGHT, padx=15)
-
-        # Estado de codificación
-        self.lbl_encoding = tk.Label(
-            self.barra_estado,
-            text="UTF-8",
-            bg=self.colores["status_bg"],
-            fg=self.colores["status_fg"],
-            font=self.fuente_ui
-        )
-        self.lbl_encoding.pack(side=tk.RIGHT, padx=10)
+        self.lbl_historial.pack(side=tk.RIGHT, padx=10)
 
     def _actualizar_info_estado(self):
         texto = self.texto_editor.get("1.0", "end-1c")
-        num_caracteres = len(texto)
+        num_chars = len(texto)
+        palabras = len(texto.split()) if texto.strip() else 0
         num_lineas = int(self.texto_editor.index("end-1c").split(".")[0])
-        self.lbl_conteo.config(text=f"Líneas: {num_lineas}  |  Caracteres: {num_caracteres}")
 
-    # ---------------------------------------------------------
-    # Texto de demostración inicial
-    # ---------------------------------------------------------
-    def _cargar_demo(self):
-        demo = (
-            "# ==========================================================\n"
-            "# Editor de Texto con Deshacer, Rehacer y Autocompletado\n"
-            "# ==========================================================\n\n"
-            "Bienvenido al entorno visual del proyecto.\n"
-            "Esta maqueta visual incluye:\n"
-            " - Barra de herramientas con accesos rápidos (Nuevo, Abrir, Guardar, Deshacer, Rehacer).\n"
-            " - Panel retráctil para 'Buscar y Reemplazar'.\n"
-            " - Numeración lateral de líneas sincronizada.\n"
-            " - Ventana emergente (popup) para sugerencias de autocompletado.\n"
-            " - Barra de estado inferior (conteo de líneas/caracteres y estado de historial).\n"
-            "Anda, prueba a escribir algo, vas a ver que divertido como funciona todo Jajjaja, no, no va a funcionar\n"
-            "NO HAY LOGICA CONECTADA AÚN 😊"
+        pos = self.texto_editor.index(tk.INSERT).split(".")
+        lin_act, col_act = pos[0], int(pos[1]) + 1
+
+        self.lbl_stats.config(
+            text=f"Página 1 de 1  |  {palabras} palabras  |  {num_chars} caracteres  |  {num_lineas} líneas"
         )
-        self.texto_editor.insert("1.0", demo)
-        self._actualizar_info_estado()
+        self.lbl_cursor.config(text=f"Lín {lin_act}, Col {col_act}")
+
+        deshacer_n = self.logica.pila_undo.tamano()
+        rehacer_n = self.logica.pila_redo.tamano()
+        self.lbl_historial.config(text=f"⟲ {deshacer_n} | ⟳ {rehacer_n}")
 
 
 if __name__ == "__main__":
-    app = EditorVisualMockup()
+    app = EditorTexto()
     app.mainloop()
