@@ -378,6 +378,163 @@ def test_sugerir_palabras_con_indice_de_texto():
     logica._reconstruir_arbol()
     assert "python" in logica.sugerir_palabras("py")
 
+
+def test_busqueda_no_distingue_mayusculas():
+    logica = Logica()
+    logica.cargar_texto("Python es bueno\npython es malo\nPYTHON al reves")
+    logica._reconstruir_arbol()
+
+    encontradas = logica.buscar_texto("Python")
+    # las tres lineas aparecen, en la columna real de la coincidencia
+    assert encontradas == [(0, 0), (1, 0), (2, 0)]
+    # escribirlo en minusculas devuelve exactamente lo mismo
+    assert logica.buscar_texto("python") == encontradas
+    assert logica.buscar_texto("PYTHON") == encontradas
+
+
+def test_busqueda_con_caracteres_que_cambian_longitud():
+    # 'İ'.lower() tiene 2 caracteres: no se pueden mapear posiciones,
+    # asi que se cae a la busqueda sensible sin desalinear el resaltado
+    logica = Logica()
+    logica.cargar_texto("İstanbul es grande")
+    logica._reconstruir_arbol()
+    assert logica.buscar_texto("İstanbul") == [(0, 0)]
+
+
+def test_guardar_snapshot_registra_en_bitacora():
+    # la bitacora queda en cero al crear la instancia
+    logica = Logica()
+    assert logica.total_acciones() == 0
+    assert logica.ultima_operacion() == ""
+
+    # cada guardar_snapshot con texto_previo = un paso de deshacer = una entrada
+    snap = ""
+    for texto in ["h", "ho", "hol"]:
+        logica.cargar_texto(texto)
+        logica.guardar_snapshot(snap)
+        snap = texto
+
+    assert logica.total_acciones() == 3
+    # numero, tipo y el trozo de texto registrado (no el texto completo)
+    assert logica.ultima_operacion() == '#3 INSERTAR "l"'
+
+    # un borrado se registra como BORRAR
+    logica.cargar_texto("ho")
+    logica.guardar_snapshot("hol")
+    assert logica.ultima_operacion() == '#4 BORRAR "l"'
+
+
+def test_bitacora_no_altera_el_deshacer():
+    # el registro de la bitacora no cambia el comportamiento de pila_undo/pila_redo
+    logica = Logica()
+    snap = ""
+    for texto in ["a", "ab", "abc"]:
+        logica.cargar_texto(texto)
+        logica.guardar_snapshot(snap)
+        snap = texto
+
+    assert logica.total_acciones() == 3
+    assert logica.deshacer() == "ab"
+    assert logica.deshacer() == "a"
+    assert logica.rehacer() == "ab"
+    assert logica.rehacer() == "abc"
+    # deshacer/rehacer no son ediciones: no suman entradas nuevas
+    assert logica.total_acciones() == 3
+
+    # nuevo documento reinicia la bitacora
+    logica.nuevo_documento()
+    assert logica.total_acciones() == 0
+    assert logica.ultima_operacion() == ""
+
+
+def test_set_cursor_y_mover_cursor_desde_la_logica():
+    # la interfaz sincroniza la posicion con set_cursor y delega el movimiento
+    logica = Logica()
+    logica.cargar_texto("hola\nmundo")
+
+    logica.set_cursor(0, 4)              # final de la primera linea
+    assert (logica.cursor._fila, logica.cursor._columna) == (0, 4)
+
+    logica.mover_cursor("derecha")       # pasa al inicio de la linea siguiente
+    assert (logica.cursor._fila, logica.cursor._columna) == (1, 0)
+
+    logica.mover_cursor("abajo")         # ya esta en la ultima linea: no se mueve
+    assert (logica.cursor._fila, logica.cursor._columna) == (1, 0)
+
+    logica.mover_cursor("arriba")
+    assert (logica.cursor._fila, logica.cursor._columna) == (0, 0)
+
+    logica.mover_cursor("arriba")        # primera linea: no se mueve
+    assert (logica.cursor._fila, logica.cursor._columna) == (0, 0)
+
+    logica.mover_cursor("derecha")
+    logica.mover_cursor("derecha")
+    logica.mover_cursor("derecha")
+    logica.mover_cursor("derecha")
+    assert (logica.cursor._fila, logica.cursor._columna) == (0, 4)
+    logica.mover_cursor("derecha")       # no pasa del largo de la linea
+    assert (logica.cursor._fila, logica.cursor._columna) == (1, 0)
+
+
+def test_set_cursor_no_acepta_valores_negativos():
+    # indices invalidos (por ejemplo un widget sin texto) se recortan a 0
+    logica = Logica()
+    logica.set_cursor(-1, -5)
+    assert (logica.cursor._fila, logica.cursor._columna) == (0, 0)
+
+
+# PRUEBAS DEL DICCIONARIO DE PALABRAS SUGERIDAS
+def test_cargar_diccionario_desde_archivo(tmp_path):
+    ruta = tmp_path / "diccionario.txt"
+    # mayusculas, repetidas, palabras en la misma linea y lineas vacias
+    ruta.write_text("Algoritmos\narbol\nALGORITMOS\n\n  Datos  \nlista por nodo\n",
+                    encoding="utf-8")
+    logica = Logica()
+    cantidad = logica.cargar_diccionario(str(ruta))
+
+    # algoritmos, arbol, datos, lista, por, nodo
+    assert cantidad == 6
+    assert logica.sugerir_palabras("alg") == ["algoritmos"]
+    assert logica.sugerir_palabras("ar") == ["arbol"]
+    # el archivo viene desordenado: el diccionario resultante queda ordenado
+    assert logica.sugerir_palabras("l") == ["lista"]
+    assert logica.sugerir_palabras("no") == ["nodo"]
+
+
+def test_cargar_diccionario_reemplaza_el_por_defecto(tmp_path):
+    ruta = tmp_path / "diccionario.txt"
+    ruta.write_text("ejemplo\nzzeta\n", encoding="utf-8")
+    logica = Logica()
+    assert logica.sugerir_palabras("py") == ["python"]   # por defecto
+
+    logica.cargar_diccionario(str(ruta))
+    assert logica.sugerir_palabras("py") == []           # ya no esta
+    assert logica.sugerir_palabras("ej") == ["ejemplo"]
+
+
+def test_cargar_diccionario_archivo_vacio_no_borra_el_actual(tmp_path):
+    ruta = tmp_path / "vacio.txt"
+    ruta.write_text("   \n\n\n", encoding="utf-8")
+    logica = Logica()
+
+    cantidad = logica.cargar_diccionario(str(ruta))
+    assert cantidad == 0
+    # el diccionario por defecto se conserva
+    assert logica.sugerir_palabras("py") == ["python"]
+
+
+def test_restaurar_diccionario_por_defecto(tmp_path):
+    ruta = tmp_path / "personal.txt"
+    ruta.write_text("zzeta\n", encoding="utf-8")
+    logica = Logica()
+    logica.cargar_diccionario(str(ruta))
+    assert logica.sugerir_palabras("py") == []
+
+    cantidad = logica.restaurar_diccionario_por_defecto()
+    assert cantidad == 10
+    assert logica.sugerir_palabras("py") == ["python"]
+    assert logica.sugerir_palabras("zz") == []
+
    
 
 

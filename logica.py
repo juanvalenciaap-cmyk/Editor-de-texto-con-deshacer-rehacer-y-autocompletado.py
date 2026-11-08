@@ -2,9 +2,8 @@ from arreglo_dinamico import ArregloDinamico
 from busqueda_binaria import busqueda_binaria
 from carga_archivos import CargaArchivos
 from cola_dinamica import ColaDinamica
-from lista_doble import (lista_doble,Nodo)
 from merge_sort import merge_sort
-from pila_cola_estatica import (Historial,ColaEstatica,PilaEstatica,opeeracion,EstructuraVaciaError,BORRAR,INSERTAR)
+from pila_cola_estatica import (Historial,ColaEstatica,opeeracion,BORRAR,INSERTAR)
 from pila_dinamica import PilaDinamica
 from posicion_cursor import PosicionCursor
 from insertion_sort import insertion_sort
@@ -22,14 +21,13 @@ class Logica:
         self.ruta_actual = None
         self.diccionario = ArregloDinamico()
         self._cargar_palabras_por_defecto()
-        self.lineas_lista_doble = lista_doble()
-        self.lineas_lista_doble.agregar_final("")
         self.pila_undo=PilaDinamica()
         self.pila_redo=PilaDinamica()
-        self.pila_dinamica=PilaDinamica()
         self.cola_resultados_busqueda=ColaDinamica()
         self.arbol =ArbolBusqueda()
         self.gestor_archivos= GestorArchivosGrafo()
+        self._total_acciones = 0
+        self._ultima_accion = None
 
     def obtener_texto(self):
         lineas=[]
@@ -39,12 +37,9 @@ class Logica:
     def cargar_texto(self,texto_completo):
         lista_lineas=texto_completo.split("\n")
         nuevo_arreglo=ArregloDinamico(max(1,len(lista_lineas)))
-        nueva_lista_doble=lista_doble()
         for linea in lista_lineas:
             nuevo_arreglo.agregar(linea)
-            nueva_lista_doble.agregar_final(linea)
         self.lineas=nuevo_arreglo
-        self.lineas_lista_doble=nueva_lista_doble
     def total_lineas(self):
         return len(self.lineas)
     def total_caracteres(self):
@@ -52,8 +47,6 @@ class Logica:
     def nuevo_documento(self):
         self.lineas =ArregloDinamico()
         self.lineas.agregar("")
-        self.lineas_lista_doble=lista_doble()
-        self.lineas_lista_doble.agregar_final("")
         self.cursor=PosicionCursor(0,0)
         self.historial=Historial(capacidad=100)
         self.arbol=ArbolBusqueda()
@@ -64,6 +57,8 @@ class Logica:
             self.pila_redo.desapilar()
         while not self.cola_resultados_busqueda.esta_vacia():
             self.cola_resultados_busqueda.desencolar()
+        self._total_acciones = 0
+        self._ultima_accion = None
 
 
     def mover_cursor(self,direccion):
@@ -100,6 +95,38 @@ class Logica:
         self.historial.registrar(op)
         if not self.cola_estatica.esta_llena():
             self.cola_estatica.enqueue(f"{tipo}:{texto[:20]}")
+        self._total_acciones += 1
+        self._ultima_accion = (tipo, posicion, texto)
+    def total_acciones(self):
+        return self._total_acciones
+    def ultima_operacion(self):
+        # numero, tipo y texto de la ultima edicion registrada
+        if self._ultima_accion is None:
+            return ""
+        tipo, _, texto = self._ultima_accion
+        resumen = texto if len(texto) <= 20 else texto[:17] + "..."
+        return f'#{self._total_acciones} {tipo} "{resumen}"'
+    def _detectar_cambio(self, previo, actual):
+        # localiza que trozo se inserto y que trozo se elimino entre dos estados
+        i = 0
+        limite = min(len(previo), len(actual))
+        while i < limite and previo[i] == actual[i]:
+            i += 1
+        j = 0
+        while (j < len(previo) - i and j < len(actual) - i
+               and previo[len(previo) - 1 - j] == actual[len(actual) - 1 - j]):
+            j += 1
+        fila = previo[:i].count("\n") + 1
+        return previo[i:len(previo) - j], actual[i:len(actual) - j], fila
+    def _registrar_cambio(self, texto_previo):
+        texto_actual = self.obtener_texto()
+        if texto_actual == texto_previo:
+            return
+        eliminado, insertado, fila = self._detectar_cambio(texto_previo, texto_actual)
+        if eliminado:
+            self.registrar_accion(BORRAR, fila, eliminado)
+        if insertado:
+            self.registrar_accion(INSERTAR, fila, insertado)
     def guardar_snapshot(self, texto_previo=None):
         # apila el estado ANTERIOR del documento, para que deshacer siempre
         # pueda retroceder hasta el punto previo a la edicion
@@ -109,6 +136,8 @@ class Logica:
         self.pila_undo.apilar(texto)
         while not self.pila_redo.esta_vacia():
             self.pila_redo.desapilar()
+        if texto_previo is not None:
+            self._registrar_cambio(texto_previo)
 
 
     def deshacer(self):
@@ -148,6 +177,33 @@ class Logica:
                 insertion_sort(self.diccionario)
             else: 
                 merge_sort(self.diccionario)
+    def cargar_diccionario(self, ruta):
+        # carga un diccionario de palabras sugeridas desde un .txt y lo deja
+        # en lugar del por defecto. Formato: una palabra por linea (tambien
+        # se aceptan varias separadas por espacios). Devuelve cuantas
+        # palabras quedaron cargadas; un archivo sin palabras validas no
+        # destruye el diccionario actual.
+        lineas = CargaArchivos.cargar_documento(ruta)
+        candidatas = ArregloDinamico()
+        for i in range(len(lineas)):
+            for palabra in lineas.obtener(i).split():
+                candidatas.agregar(palabra.strip().lower())
+        if len(candidatas) == 0:
+            return 0
+        merge_sort(candidatas)
+        # al estar ordenadas, las repetidas quedan juntas: se descartan
+        nuevo = ArregloDinamico(max(1, len(candidatas)))
+        for i in range(len(candidatas)):
+            palabra = candidatas.obtener(i)
+            if i == 0 or palabra != candidatas.obtener(i - 1):
+                nuevo.agregar(palabra)
+        self.diccionario = nuevo
+        return len(self.diccionario)
+    def restaurar_diccionario_por_defecto(self):
+        # vuelve a las palabras base del editor
+        self.diccionario = ArregloDinamico()
+        self._cargar_palabras_por_defecto()
+        return len(self.diccionario)
     def sugerir_palabras(self,prefijo,limite=5):
         prefijo=prefijo.strip().lower()
         if not prefijo :
@@ -181,15 +237,14 @@ class Logica:
         if usar_recursivo:
             self.lineas=CargaArchivosRecur.cargar_documento_recursivo(ruta)
             nodo.lineas = self.lineas 
-        self.lineas_lista_doble = lista_doble ()   
-        for i in range (len(self.lineas)):
-            self.lineas_lista_doble.agregar_final(self.lineas.obtener(i))
         self.cursor = PosicionCursor(0,0)
         self.historial = Historial(capacidad=100)
         while not self.pila_undo.esta_vacia():
             self.pila_undo.desapilar()
         while not self.pila_redo.esta_vacia():
             self.pila_redo.desapilar()
+        self._total_acciones = 0
+        self._ultima_accion = None
         self._reconstruir_arbol()
         texto = self.obtener_texto()
         for palabra in texto.split():
@@ -215,6 +270,25 @@ class Logica:
             self.ruta_actual = nodo.ruta_actual
             self._reconstruir_arbol()
         return nodo 
+    def _columnas_coincidencias(self,linea,termino):
+        # columnas donde aparece 'termino' en 'linea', sin distinguir mayusculas
+        linea_baja=linea.lower()
+        termino_bajo=termino.lower()
+        # si .lower() cambia la longitud no se pueden mapear las posiciones:
+        # se busca distinguiendo mayusculas para no desalinear el resaltado
+        if len(linea_baja)!=len(linea) or len(termino_bajo)!=len(termino):
+            columnas=[]
+            col=linea.find(termino)
+            while col!=-1:
+                columnas.append(col)
+                col=linea.find(termino,col+len(termino))
+            return columnas
+        columnas=[]
+        col=linea_baja.find(termino_bajo)
+        while col!=-1:
+            columnas.append(col)
+            col=linea_baja.find(termino_bajo,col+len(termino_bajo))
+        return columnas
     def buscar_texto (self,palabra_buscar):
         if not palabra_buscar:
         
@@ -226,17 +300,13 @@ class Logica:
                 num_linea = lineas_candidatas.obtener(i) -1
                 if 0<=num_linea <len (self.lineas):
                     linea=self.lineas.obtener(num_linea)
-                    col=linea.find(palabra_buscar)
-                    while col != -1 :
+                    for col in self._columnas_coincidencias(linea,palabra_buscar):
                         coincidencias.append((num_linea,col))
-                        col = linea.find (palabra_buscar,col+len(palabra_buscar))
         else :
             for i in range (len(self.lineas)):
                 linea = self.lineas.obtener(i)
-                col = linea.find(palabra_buscar)
-                while col != -1 :
+                for col in self._columnas_coincidencias(linea,palabra_buscar):
                     coincidencias.append((i,col))
-                    col = linea.find(palabra_buscar,col+len(palabra_buscar))
         while not self.cola_resultados_busqueda.esta_vacia():
             self.cola_resultados_busqueda.desencolar()
         for c in coincidencias:
